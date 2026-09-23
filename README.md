@@ -1,86 +1,96 @@
-# DILI chemical generalization stress test
+# DILI counterfactual exposure audit
 
-## Question
+## The question
 
-**How much of a structure-only DILI classifier's apparent performance survives when the test compounds are chemically novel rather than random held-out examples?**
+**If a DILI model says it uses dose and exposure, does it actually behave sensibly when you change dose for the same molecule?**
 
-This is deliberately different from asking whether similar scaffolds can carry different DILI labels. DILI-Context already establishes that exposure matters and reports complementary signal from exposure-derived covariates. The more useful follow-up is whether apparent predictive performance survives when a model cannot lean as heavily on familiar chemistry.
+DILI-Context already shows that dose/exposure variables are associated with DILI severity across drugs and that exposure-enriched features add predictive signal. This repo asks a different question: whether an exposure-aware model is *counterfactually consistent* rather than merely using dose as a useful correlational feature across the dataset.
 
-That lines up directly with Absentia's public research question: how do we tell genuine generalization on a novel compound from interpolation over known chemistry?
+For one drug, freeze the chemistry and every other context variable, then change only the dose. If the model's predicted DILI risk falls sharply as dose rises, that is a counterfactual reversal worth investigating. Likewise, if removing an exposure variable makes the model *more* confident, that is a useful uncertainty failure case.
 
-## Public result
+I could not find either evaluation reported in the public DILI-Context paper, Absentia's public writeup, or its current research-problem description. This does **not** establish that Absentia has never run these tests internally.
 
-Using the public DILIrank-labelled structures distributed with StackDILI, this repo currently finds:
+## Challenge 1: same-drug dose ladders
 
-- **452** unique, non-conflicting structures after cleaning
-- median random-split AUROC: **0.828**
-- median Bemis-Murcko scaffold-held-out AUROC: **0.801**
-- random-to-scaffold AUROC gap: **0.027**
-- among scaffold-held-out compounds with maximum Morgan Tanimoto similarity **< 0.30** to any training molecule, median AUROC falls to **0.738** and median Brier score is **0.215**
+For each drug/context row, generate counterfactual copies at:
 
-The high-similarity bins are much easier, although they are also small, so they should not be overinterpreted. Full split-level and prediction-level outputs are in [`results/`](results/).
+`0.125x, 0.25x, 0.5x, 1x, 2x, 4x, 8x` the reference daily dose.
 
-See [`results/SUMMARY.md`](results/SUMMARY.md) for the generated summary.
+Everything except dose is held fixed.
 
-## What the benchmark does
+After the model scores the rows, the audit reports:
 
-For the same class-balanced logistic-regression baseline on radius-2, 2048-bit Morgan fingerprints, it compares:
+- fraction of adjacent dose steps where predicted risk decreases;
+- fraction of drugs with at least one reversal;
+- largest reversal for each drug;
+- Spearman correlation between log-dose and predicted risk within each drug;
+- dose-response range, to identify models that claim to use exposure but are effectively flat.
 
-1. repeated stratified random holdouts;
-2. repeated Bemis-Murcko scaffold-group holdouts;
-3. performance and calibration as a function of each test molecule's maximum fingerprint similarity to the training set.
+This is intentionally a **behavioral sanity test**, not a claim that every real DILI mechanism is globally monotonic over arbitrary doses. Large local reversals are flags for inspection, not automatic proof that a model is biologically wrong.
 
-The point is not to claim this simple model is state of the art. The point is to expose when evaluation is benefiting from chemical familiarity.
+## Challenge 2: exposure-information ablation
 
-## The DILI-Context experiment this sets up
+For each reference context, make copies with individual context fields removed (for example dose, duration, NOAEL, or route). If a model emits uncertainty/confidence, the audit can test whether uncertainty rises when information it supposedly uses disappears.
 
-The published DILI-Context work already reports that exposure-derived variables add signal beyond structure in an aggregate benchmark. The next experiment is therefore much sharper:
+This is useful for separating:
 
-> **When chemistry is genuinely unfamiliar, do dose/exposure/context features rescue the predictions that a structure-only model gets wrong?**
+- a model that actually depends on exposure context;
+- a model that mostly ignores it;
+- a model that depends on it but is overconfident when it is missing.
 
-Run the exact same held-out compounds through:
+## Why this is different from the published DILI-Context benchmark
 
-1. structure only;
-2. context only;
-3. structure + context.
+The published work asks whether exposure-derived variables stratify DILI concern and add predictive signal across a cohort. This benchmark asks a within-molecule intervention question:
 
-Then compare the gain from context across chemical-similarity bins. If context helps disproportionately in the low-similarity bins, that is evidence that it is contributing information beyond chemical interpolation. If it does not, that is a useful failure mode too.
+> **Holding the drug fixed, does changing exposure move the model in the expected direction?**
 
-This repo does **not** currently claim to answer that second question because it does not bundle Absentia's full DILI-Context feature table.
+A model can perform well on an ordinary exposure-enriched classification benchmark and still fail this test.
 
-## Reproduce
+## Usage
 
-```bash
-pip install -r requirements.txt
-python benchmark_generalization.py --output-dir results
+Start with a CSV containing at minimum:
+
+```text
+drug_id,daily_dose_mg
 ```
 
-By default the script downloads the public StackDILI dataset and filters to rows tagged `DILIrank`.
+You can include any other model inputs (SMILES, route, duration, NOAEL, targets, etc.); they are carried through unchanged.
 
-You can run another compatible binary DILI dataset with:
+Generate counterfactuals:
 
 ```bash
-python benchmark_generalization.py --input-csv your_data.csv --source all
+python counterfactual_exposure_audit.py make \
+  --input contexts.csv \
+  --output counterfactuals.csv
 ```
 
-The CSV must contain `SMILES` and `Label` columns (case-insensitive), with binary labels 0/1.
+Run your model on `counterfactuals.csv` and add a `predicted_risk` column. If available, also add `uncertainty`.
 
-## Outputs
+Audit predictions:
 
-- `results/SUMMARY.md` — generated headline results and caveats
-- `results/split_metrics.csv` — metrics for every random/scaffold split
-- `results/similarity_bin_metrics.csv` — split-level metrics by chemical-familiarity bin
-- `results/predictions.csv` — held-out prediction, label, and max training similarity for every evaluated compound
-- `results/clean_dataset.csv` — cleaned structures used by the benchmark
+```bash
+python counterfactual_exposure_audit.py audit \
+  --input scored_counterfactuals.csv \
+  --output-dir audit_results
+```
 
-A GitHub Action reruns the benchmark whenever the benchmark code or dependencies change and commits the generated outputs.
+The script writes per-drug metrics, individual reversals, and a short Markdown summary.
+
+## Required columns for scoring
+
+The generator adds the metadata needed by the audit automatically. The scored file needs:
+
+- `predicted_risk` — larger means more predicted DILI risk;
+- optionally `uncertainty` — larger means less confidence.
+
+No Absentia model or proprietary data is included here. The point is to provide a small, falsifiable evaluation that can be run against any exposure-aware DILI model.
 
 ## Public provenance
 
-- DILI-Context overview: https://www.absentia.bio/publications/dili-context
-- Absentia AI Research Scientist research questions: https://jobs.ashbyhq.com/absentia-labs/f8cb711d-2f7e-457a-856e-c455fa541ddc
-- StackDILI public dataset: https://github.com/GGCL7/StackDILI/tree/main/Data
+- DILI-Context paper: https://doi.org/10.1093/toxsci/kfag077
+- Absentia DILI-Context writeup: https://www.absentia.bio/publications/dili-context
+- Absentia AI research questions: https://jobs.ashbyhq.com/absentia-labs/f8cb711d-2f7e-457a-856e-c455fa541ddc
 
-## Caveats
+## Caveat
 
-This is a small public baseline, not a reproduction of Absentia's internal model. Repeated train/test splits are not independent deployment cohorts. Similarity-stratified AUROC can also become unstable when a bin is small or contains only one class; undefined values are left as `NA` rather than silently filled.
+Dose-response relationships can be nonlinear and some idiosyncratic mechanisms need more context than dose alone. The benchmark therefore treats monotonicity violations as **challenge cases to inspect**, not as definitive biological errors. Its purpose is to expose model behavior that aggregate AUROC cannot show.
