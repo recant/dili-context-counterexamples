@@ -1,53 +1,86 @@
-# DILI Context Counterexamples
+# DILI chemical generalization stress test
 
-A small proof-of-concept benchmark for a specific question: **when chemical structure gives the wrong intuition about DILI risk, can dose, exposure, and biological context resolve the counterexample?**
+## Question
 
-## Motivation
+**How much of a structure-only DILI classifier's apparent performance survives when the test compounds are chemically novel rather than random held-out examples?**
 
-Absentia's DILI-Context work argues that clinical hepatotoxicity is exposure-dependent rather than a fixed property of molecular structure. Their public research agenda also emphasizes out-of-distribution generalization, applicability-domain assessment, mechanistic interpretation, and benchmarks that distinguish genuine biological generalization from chemical interpolation.
+This is deliberately different from asking whether similar scaffolds can carry different DILI labels. DILI-Context already establishes that exposure matters and reports complementary signal from exposure-derived covariates. The more useful follow-up is whether apparent predictive performance survives when a model cannot lean as heavily on familiar chemistry.
 
-This repository turns that into an adversarial evaluation design. It identifies compounds that share the same Bemis-Murcko scaffold, or are close structural analogs, but carry discordant DILI labels. These are cases where a structure-only model cannot safely rely on scaffold identity. A context-aware model should have an opportunity to explain the divergence using dose, duration, exposure, toxicity thresholds, metabolism, or biological evidence.
+That lines up directly with Absentia's public research question: how do we tell genuine generalization on a novel compound from interpolation over known chemistry?
 
-## Public pilot
+## Public result
 
-The bundled pilot uses a small public, structure-resolved DILIrank-labelled set released with StackDILI. It is **not** the full FDA DILIrank 2.0 dataset and is **not** Absentia's DILI-Context dataset.
+Using the public DILIrank-labelled structures distributed with StackDILI, this repo currently finds:
 
-Pilot observations:
+- **452** unique, non-conflicting structures after cleaning
+- median random-split AUROC: **0.828**
+- median Bemis-Murcko scaffold-held-out AUROC: **0.801**
+- random-to-scaffold AUROC gap: **0.027**
+- among scaffold-held-out compounds with maximum Morgan Tanimoto similarity **< 0.30** to any training molecule, median AUROC falls to **0.738** and median Brier score is **0.215**
 
-- 4 exact Murcko-scaffold families contain both DILI-positive and DILI-negative examples.
-- 21 compounds fall into those discordant families.
-- The largest family contains 11 compounds: 4 positive and 7 negative.
-- The closest opposite-label Morgan-fingerprint pair in this pilot has Tanimoto 0.481.
+The high-similarity bins are much easier, although they are also small, so they should not be overinterpreted. Full split-level and prediction-level outputs are in [`results/`](results/).
 
-The last point is important: the pilot establishes the benchmark construction, but the chemistry is not yet close enough to support strong claims about "chemical twins." The useful next step is to run the pipeline on full DILIrank 2.0 / DILI-Context and mine genuinely high-similarity discordant pairs.
+See [`results/SUMMARY.md`](results/SUMMARY.md) for the generated summary.
 
-## Full benchmark design
+## What the benchmark does
 
-1. Standardize and map the full DILIrank 2.0 compound set to parent structures.
-2. Mine exact-scaffold and high-Tanimoto pairs with discordant concern/severity labels.
-3. Attach context variables such as therapeutic dose, duration, route, NOAEL/LOAEL, safety margins, hepatic-adjustment evidence, metabolism, and targets.
-4. Compare structure-only predictions with progressively context-enriched models.
-5. Evaluate **counterexample resolution rate**: among structurally misleading pairs, how often does context recover the correct risk ordering?
-6. Require attribution: which context variable(s) caused the risk ordering to change?
-7. Hold out entire contradiction families to reduce scaffold memorization and leakage.
+For the same class-balanced logistic-regression baseline on radius-2, 2048-bit Morgan fingerprints, it compares:
 
-The intended endpoint is not another aggregate AUROC. It is a falsifiable test of whether a model can explain clinically divergent outcomes among structurally related drugs.
+1. repeated stratified random holdouts;
+2. repeated Bemis-Murcko scaffold-group holdouts;
+3. performance and calibration as a function of each test molecule's maximum fingerprint similarity to the training set.
 
-## Files
+The point is not to claim this simple model is state of the art. The point is to expose when evaluation is benefiting from chemical familiarity.
 
-- `generate_challenge.py` — minimal reproducible construction script.
-- `requirements.txt` — Python dependencies.
-- `results/challenge_set.csv` — compounds belonging to exact scaffold families with discordant labels.
-- `results/discordant_scaffold_families.csv` — family-level summary.
-- `results/top_opposite_label_analogs.csv` — highest-similarity opposite-label pairs in the pilot.
-- `results/similarity_stratified_contradictions.csv` — contradiction rates stratified by nearest-neighbor similarity.
+## The DILI-Context experiment this sets up
+
+The published DILI-Context work already reports that exposure-derived variables add signal beyond structure in an aggregate benchmark. The next experiment is therefore much sharper:
+
+> **When chemistry is genuinely unfamiliar, do dose/exposure/context features rescue the predictions that a structure-only model gets wrong?**
+
+Run the exact same held-out compounds through:
+
+1. structure only;
+2. context only;
+3. structure + context.
+
+Then compare the gain from context across chemical-similarity bins. If context helps disproportionately in the low-similarity bins, that is evidence that it is contributing information beyond chemical interpolation. If it does not, that is a useful failure mode too.
+
+This repo does **not** currently claim to answer that second question because it does not bundle Absentia's full DILI-Context feature table.
+
+## Reproduce
+
+```bash
+pip install -r requirements.txt
+python benchmark_generalization.py --output-dir results
+```
+
+By default the script downloads the public StackDILI dataset and filters to rows tagged `DILIrank`.
+
+You can run another compatible binary DILI dataset with:
+
+```bash
+python benchmark_generalization.py --input-csv your_data.csv --source all
+```
+
+The CSV must contain `SMILES` and `Label` columns (case-insensitive), with binary labels 0/1.
+
+## Outputs
+
+- `results/SUMMARY.md` — generated headline results and caveats
+- `results/split_metrics.csv` — metrics for every random/scaffold split
+- `results/similarity_bin_metrics.csv` — split-level metrics by chemical-familiarity bin
+- `results/predictions.csv` — held-out prediction, label, and max training similarity for every evaluated compound
+- `results/clean_dataset.csv` — cleaned structures used by the benchmark
+
+A GitHub Action reruns the benchmark whenever the benchmark code or dependencies change and commits the generated outputs.
 
 ## Public provenance
 
 - DILI-Context overview: https://www.absentia.bio/publications/dili-context
 - Absentia AI Research Scientist research questions: https://jobs.ashbyhq.com/absentia-labs/f8cb711d-2f7e-457a-856e-c455fa541ddc
-- Public structure-resolved pilot source: https://github.com/GGCL7/StackDILI
+- StackDILI public dataset: https://github.com/GGCL7/StackDILI/tree/main/Data
 
-## Status
+## Caveats
 
-Proof of concept. The repository intentionally separates demonstrated pilot results from the proposed full DILIrank 2.0 / DILI-Context experiment.
+This is a small public baseline, not a reproduction of Absentia's internal model. Repeated train/test splits are not independent deployment cohorts. Similarity-stratified AUROC can also become unstable when a bin is small or contains only one class; undefined values are left as `NA` rather than silently filled.
