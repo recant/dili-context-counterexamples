@@ -35,12 +35,12 @@ The intended endpoint is not another aggregate AUROC. It is a falsifiable test o
 
 ## Files
 
-- `challenge_set.csv` — compounds belonging to exact scaffold families with discordant labels.
-- `discordant_scaffold_families.csv` — family-level summary.
-- `top_opposite_label_analogs.csv` — highest-similarity opposite-label pairs in the pilot.
-- `nearest_neighbor_audit.csv` — nearest structural neighbor and label agreement for every pilot compound.
-- `similarity_stratified_contradictions.csv` — contradiction rates stratified by nearest-neighbor similarity.
 - `generate_challenge.py` — minimal reproducible construction script.
+- `requirements.txt` — Python dependencies.
+- `results/challenge_set.csv` — compounds belonging to exact scaffold families with discordant labels.
+- `results/discordant_scaffold_families.csv` — family-level summary.
+- `results/top_opposite_label_analogs.csv` — highest-similarity opposite-label pairs in the pilot.
+- `results/similarity_stratified_contradictions.csv` — contradiction rates stratified by nearest-neighbor similarity.
 
 ## Public provenance
 
