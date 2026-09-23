@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -40,4 +42,5 @@ jobs:
             exit 0
           fi
           git commit -m "Update DILI generalization benchmark results [skip ci]"
-          git push
+          git pull --rebase origin main
+          git push origin main
