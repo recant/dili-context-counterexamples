@@ -1,5 +1,0 @@
-family_id,murcko_scaffold,n_compounds,n_dili_positive,n_dili_negative,positive_fraction
-F03,c1ccccc1,11,4,7,0.36363636363636365
-F04,c1ccncc1,4,3,1,0.75
-F02,c1ccc(Oc2ccccc2)cc1,3,2,1,0.6666666666666666
-F01,O=C1C=C2CCC3C4CCCC4CCC3C2CC1,3,1,2,0.3333333333333333
