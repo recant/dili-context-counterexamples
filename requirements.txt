@@ -2,3 +2,4 @@ numpy>=1.26
 pandas>=2.0
 rdkit>=2024.3
 scikit-learn>=1.5
+# dependencies for the reproducible public benchmark
